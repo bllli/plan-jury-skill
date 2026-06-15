@@ -1,0 +1,4 @@
+interface:
+  display_name: "Plan Jury"
+  short_description: "Run second-opinion plan review loops"
+  default_prompt: "Use $plan-jury to turn the current technical approach into a reviewed plan markdown."
