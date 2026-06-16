@@ -70,6 +70,8 @@ Include:
 - Weakest assumption
 - Missing evidence
 
+The first verdict line must be machine-readable as `Verdict: APPROVED`, `Verdict: MOSTLY_GOOD`, `Verdict: NEEDS_REVISION`, or `Verdict: BLOCKED` so the jury runner can aggregate a majority.
+
 ### Blocking Issues
 
 For each blocker:
@@ -117,4 +119,4 @@ If not `APPROVED`, list the minimal conditions required before approval.
 
 ## Final Plan Handling
 
-Your review is working feedback only. Codex will use it to revise the plan, but the final saved artifact must be a single clean conclusion plan. Do not ask Codex to preserve review transcripts, review logs, ratings, or traceability tables in the final plan.
+Your review is working feedback only. Codex will use it to revise the plan, but the final saved artifact must be a single clean conclusion plan. Do not ask Codex to include review transcripts, review logs, ratings, artifact paths, or traceability tables in the final plan.

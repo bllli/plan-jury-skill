@@ -2,21 +2,21 @@
 
 Plan Jury：将技术方案生成可审计的 plan markdown，并通过 OpenAI 兼容模型进行最多 5 轮独立评审，达成共识或交由人类裁决。
 
-`plan-jury` is a Codex skill that turns a technical approach into a detailed plan markdown, then asks an external OpenAI-compatible reviewer model to critique it for up to 5 rounds.
+`plan-jury` is a Codex skill that turns a technical approach into a detailed plan markdown, then asks multiple external OpenAI-compatible reviewer models to critique it concurrently for up to 5 rounds.
 
-The goal is not to let one model rubber-stamp its own plan. Codex drafts and revises the plan; the reviewer model acts as an independent second opinion. If both sides converge, the review ends early. If they still disagree after 5 rounds, the final plan records the unresolved issues for human judgment.
+The goal is not to let one model rubber-stamp its own plan. Codex drafts and revises the plan; the reviewer jury acts as independent second opinions. If a majority of configured reviewers approve the current plan, the review ends early. If no majority approves after 5 rounds, the final plan records unresolved decisions for human judgment.
 
 ## Features
 
 - Generates a human-reviewable technical plan markdown.
-- Calls an external OpenAI-compatible `/chat/completions` reviewer.
-- Supports `base_url`, `model`, config-file API keys, local no-auth models, provider headers, and extra request body fields.
+- Calls multiple external OpenAI-compatible `/chat/completions` reviewers concurrently.
+- Supports per-reviewer `base_url`, `model`, config-file API keys, local no-auth models, provider headers, and extra request body fields.
 - Records metadata for every reviewer request, including provider URL, model, token counts, duration, status, and errors.
 - Estimates review duration from plan size and prior local usage history before making a request.
 - Runs a bounded review loop with verdicts: `APPROVED`, `MOSTLY_GOOD`, `NEEDS_REVISION`, `BLOCKED`.
-- Stops early when consensus is reached.
+- Stops early when a majority of configured reviewers returns `APPROVED` or `MOSTLY_GOOD`.
 - Escalates unresolved disagreements to a `Needs Human Decision` section after 5 rounds.
-- Produces one clean final plan document without persisted review transcript details.
+- Produces one clean final plan document while keeping reviewer input/output artifacts separate from the final plan.
 - Uses prompt-injection boundaries around the reviewed plan.
 - Requires privacy classification and stop-lines before sending content to the reviewer.
 
@@ -59,26 +59,14 @@ uv run --with pyyaml python ~/.codex/skills/.system/skill-creator/scripts/quick_
 
 ## Reviewer Configuration
 
-The reviewer must expose an OpenAI-compatible chat completions API.
+Each reviewer must expose an OpenAI-compatible chat completions API. This is a breaking configuration format: `reviewers` is now required, and top-level `base_url` / `model` fields are not supported.
 
-OpenAI example:
-
-```bash
-python3 ~/.codex/skills/plan-jury/scripts/configure_reviewer.py \
-  --base-url 'https://api.openai.com/v1' \
-  --model 'gpt-4.1' \
-  --api-key 'YOUR_API_KEY' \
-  --test
-```
-
-Local no-auth compatible server example:
+Two-reviewer example:
 
 ```bash
 python3 ~/.codex/skills/plan-jury/scripts/configure_reviewer.py \
-  --base-url 'http://localhost:1234/v1' \
-  --model 'local-reviewer-model' \
-  --no-api-key \
-  --test
+  --reviewer 'name=siliconflow,base_url=https://api.siliconflow.cn/v1,model=deepseek-ai/DeepSeek-V4-Pro,api_key=YOUR_API_KEY' \
+  --reviewer 'name=local,base_url=http://localhost:1234/v1,model=local-reviewer-model'
 ```
 
 Verify configuration:
@@ -95,34 +83,57 @@ The default config file is:
 
 Supported config fields:
 
+- `language`: language that reviewer responses, plan drafts, and the final plan markdown must use, default `中文`
+- `timeout`: fixed at `300` seconds for every reviewer request
+- `usage_log`: metadata-only usage log path, default `~/.codex/plan-jury/usage.jsonl`
+- `review_dir`: per-review input, streaming output, and metadata directory, default `~/.codex/plan-jury/reviews`
+- `reviewers`: non-empty array of reviewer objects
+
+Each reviewer object supports:
+
+- `name`: unique reviewer name
 - `base_url`: OpenAI-compatible base URL, usually ending in `/v1`
 - `model`: reviewer model name
-- `api_key`: API key stored in the config file
-- `language`: language that reviewer responses, plan drafts, and the final plan markdown must use, default `中文`
+- `api_key`: optional API key stored in the config file
 - `endpoint`: endpoint path, default `/chat/completions`
 - `temperature`: default `0.2`
 - `max_tokens`: default `4096`
-- `timeout`: default `1200` seconds
-- `usage_log`: metadata-only usage log path, default `~/.codex/plan-jury/usage.jsonl`
 - `extra_headers`: provider-specific HTTP headers
 - `extra_body`: JSON object merged into the request body
 
 Runtime environment overrides:
 
 - `PLAN_JURY_CONFIG`
-- `PLAN_JURY_BASE_URL`
-- `PLAN_JURY_MODEL`
-- `PLAN_JURY_ENDPOINT`
-- `PLAN_JURY_TEMPERATURE`
-- `PLAN_JURY_MAX_TOKENS`
-- `PLAN_JURY_REVIEWER_TIMEOUT`
 - `PLAN_JURY_USAGE_LOG`
+- `PLAN_JURY_REVIEW_DIR`
 
 ## Usage Records and Duration Estimate
 
-Every actual reviewer call appends one JSON object to the usage log. It records provider and request metadata only: base URL, request URL, model, configured language, timeout, estimated prompt tokens, provider token counts when returned, duration, status, and truncated error text for failures. It does not record API keys, raw prompts, or full reviewer responses.
+Every review round gets one unique `review_id` in the form `YYYYMMDD-HHMM-description`. Pass a description explicitly when useful:
 
-The default timeout is 20 minutes. Increase `timeout` in the config, pass `--timeout`, or set `PLAN_JURY_REVIEWER_TIMEOUT` when a provider routinely needs longer.
+```bash
+python3 ~/.codex/skills/plan-jury/scripts/run_reviewer.py \
+  --description "auth migration round 1" < reviewer-prompt.md
+```
+
+The helper creates a directory at `review_dir/{review_id}/` and writes one set of files per configured reviewer:
+
+- `{reviewer}.input.md`: complete reviewer input, including system and user messages
+- `{reviewer}.output.md`: reviewer output, written incrementally while the model streams
+- `{reviewer}.meta.json`: provider, model, token, duration, status, verdict, and file-path metadata
+- `summary.json`: majority result across all configured reviewers
+
+Every individual reviewer request also appends one JSON object to the usage log. It records provider and request metadata: base URL, request URL, model, configured language, timeout, estimated prompt tokens, provider token counts when returned, duration, status, verdict, `review_id`, artifact paths, and truncated error text for failures. It does not record API keys.
+
+During a long reviewer call, inspect the output file reported on stderr:
+
+```bash
+tail -f ~/.codex/plan-jury/reviews/{review_id}/{reviewer}.output.md
+stat ~/.codex/plan-jury/reviews/{review_id}/{reviewer}.output.md
+cat ~/.codex/plan-jury/reviews/{review_id}/summary.json
+```
+
+Every reviewer request uses the same 5 minute timeout. This is fixed by the skill to keep jury rounds bounded and comparable.
 
 Before calling the reviewer, estimate the rough wait time:
 
@@ -130,7 +141,7 @@ Before calling the reviewer, estimate the rough wait time:
 python3 ~/.codex/skills/plan-jury/scripts/run_reviewer.py --estimate < plan.md
 ```
 
-For best accuracy, pipe the exact prompt that will be sent to the reviewer. If no history exists for the configured provider and model, the estimate falls back to a simple heuristic based on document size.
+For best accuracy, pipe the exact prompt that will be sent to the reviewer. If no history exists for a configured provider and model, the estimate falls back to a simple heuristic based on document size. Because requests run concurrently, the overall estimate is the slowest configured reviewer.
 
 ## Usage
 
@@ -157,7 +168,7 @@ The skill will:
 3. Classify privacy, stop-lines, assumptions, and evidence gaps.
 4. Use the configured `language` for the draft, reviewer prompt requirements, and final plan.
 5. Estimate the review duration from the current prompt and usage history.
-6. Send the plan to the configured reviewer.
+6. Send the plan concurrently to all configured reviewers.
 7. Apply accepted reviewer feedback.
 8. Repeat until consensus or 5 rounds.
 9. Produce one final conclusion plan for human review.
@@ -185,13 +196,13 @@ It must be written in the configured `language` from `~/.codex/plan-jury/reviewe
 - Open questions
 - Human review checklist
 
-The final document intentionally excludes review rounds, reviewer verdicts, ratings, traceability tables, raw prompts, transcript summaries, and review log paths.
+The final document intentionally excludes review rounds, reviewer verdict tables, ratings, traceability tables, raw prompts, transcript summaries, artifact paths, and review log paths.
 
 ## Design Notes
 
-This skill intentionally keeps the reviewer model behind an OpenAI-compatible API instead of depending on a specific CLI. That makes it usable with OpenAI, OpenRouter, vLLM, LiteLLM, LM Studio, Ollama-compatible proxies, or internal gateways that implement `/chat/completions`.
+This skill intentionally keeps reviewer models behind OpenAI-compatible APIs instead of depending on a specific CLI. That makes it usable with OpenAI, OpenRouter, vLLM, LiteLLM, LM Studio, Ollama-compatible proxies, or internal gateways that implement `/chat/completions`.
 
-The review loop is bounded. A reviewer can block or request revision, but after 5 rounds the skill must stop and surface unresolved disagreements to a human.
+The review loop is bounded. Reviewers can block or request revision, but after 5 rounds the skill must stop and surface unresolved disagreements to a human. A round is accepted only when more than half of all configured reviewers return `APPROVED` or `MOSTLY_GOOD`.
 
 ## References
 
@@ -205,7 +216,7 @@ This project borrows process ideas from several public review and second-opinion
 - [serbanghita/claude-code-plan-critique](https://github.com/serbanghita/claude-code-plan-critique): iterative critique of plan files against project context.
 - [dementev-dev/adversarial-review](https://github.com/dementev-dev/adversarial-review): bounded adversarial review loop with a maximum of 5 rounds.
 
-`plan-jury` differs by keeping the reviewer integration provider-neutral through `base_url` and `model` configuration for any OpenAI-compatible chat completions endpoint.
+`plan-jury` differs by keeping reviewer integration provider-neutral through per-reviewer `base_url` and `model` configuration for any OpenAI-compatible chat completions endpoint.
 
 ## License
 
