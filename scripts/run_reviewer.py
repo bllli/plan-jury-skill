@@ -4,9 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 
-from reviewer_client import call_reviewer, exit_with_error, load_config
+from reviewer_client import call_reviewer, estimate_duration, exit_with_error, load_config, usage_log_path
 
 
 def main() -> int:
@@ -17,6 +18,11 @@ def main() -> int:
         "--check",
         action="store_true",
         help="Verify reviewer API configuration without making a network request.",
+    )
+    parser.add_argument(
+        "--estimate",
+        action="store_true",
+        help="Estimate request duration from stdin and local usage history without making a network request.",
     )
     parser.add_argument(
         "--config",
@@ -46,11 +52,19 @@ def main() -> int:
                 "Reviewer API configured "
                 f"from {loaded.source}: base_url={loaded.config['base_url']} "
                 f"endpoint={loaded.config['endpoint']} model={loaded.config['model']} "
-                f"language={loaded.config.get('language')} auth={auth_mode}"
+                f"language={loaded.config.get('language')} "
+                f"timeout={loaded.config.get('timeout')} "
+                f"usage_log={usage_log_path(loaded.config)} "
+                f"auth={auth_mode}"
             )
             return 0
 
-        output = call_reviewer(sys.stdin.read(), loaded.config)
+        prompt = sys.stdin.read()
+        if args.estimate:
+            print(json.dumps(estimate_duration(prompt, loaded.config), ensure_ascii=False, indent=2))
+            return 0
+
+        output = call_reviewer(prompt, loaded.config)
         print(output, end="" if output.endswith("\n") else "\n")
         return 0
     except Exception as exc:  # noqa: BLE001 - CLI should convert all failures to stderr.

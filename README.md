@@ -11,6 +11,8 @@ The goal is not to let one model rubber-stamp its own plan. Codex drafts and rev
 - Generates a human-reviewable technical plan markdown.
 - Calls an external OpenAI-compatible `/chat/completions` reviewer.
 - Supports `base_url`, `model`, config-file API keys, local no-auth models, provider headers, and extra request body fields.
+- Records metadata for every reviewer request, including provider URL, model, token counts, duration, status, and errors.
+- Estimates review duration from plan size and prior local usage history before making a request.
 - Runs a bounded review loop with verdicts: `APPROVED`, `MOSTLY_GOOD`, `NEEDS_REVISION`, `BLOCKED`.
 - Stops early when consensus is reached.
 - Escalates unresolved disagreements to a `Needs Human Decision` section after 5 rounds.
@@ -39,7 +41,7 @@ Clone the repository into your Codex skills directory:
 
 ```bash
 mkdir -p ~/.codex/skills
-git clone https://github.com/YOUR_USERNAME/plan-jury.git ~/.codex/skills/plan-jury
+git clone https://github.com/bllli/plan-jury-skill.git ~/.codex/skills/plan-jury
 ```
 
 Or copy an existing checkout:
@@ -100,7 +102,8 @@ Supported config fields:
 - `endpoint`: endpoint path, default `/chat/completions`
 - `temperature`: default `0.2`
 - `max_tokens`: default `4096`
-- `timeout`: default `600`
+- `timeout`: default `1200` seconds
+- `usage_log`: metadata-only usage log path, default `~/.codex/plan-jury/usage.jsonl`
 - `extra_headers`: provider-specific HTTP headers
 - `extra_body`: JSON object merged into the request body
 
@@ -113,6 +116,21 @@ Runtime environment overrides:
 - `PLAN_JURY_TEMPERATURE`
 - `PLAN_JURY_MAX_TOKENS`
 - `PLAN_JURY_REVIEWER_TIMEOUT`
+- `PLAN_JURY_USAGE_LOG`
+
+## Usage Records and Duration Estimate
+
+Every actual reviewer call appends one JSON object to the usage log. It records provider and request metadata only: base URL, request URL, model, configured language, timeout, estimated prompt tokens, provider token counts when returned, duration, status, and truncated error text for failures. It does not record API keys, raw prompts, or full reviewer responses.
+
+The default timeout is 20 minutes. Increase `timeout` in the config, pass `--timeout`, or set `PLAN_JURY_REVIEWER_TIMEOUT` when a provider routinely needs longer.
+
+Before calling the reviewer, estimate the rough wait time:
+
+```bash
+python3 ~/.codex/skills/plan-jury/scripts/run_reviewer.py --estimate < plan.md
+```
+
+For best accuracy, pipe the exact prompt that will be sent to the reviewer. If no history exists for the configured provider and model, the estimate falls back to a simple heuristic based on document size.
 
 ## Usage
 
@@ -137,10 +155,11 @@ The skill will:
 1. Gather repository and conversation context.
 2. Draft a detailed plan markdown.
 3. Classify privacy, stop-lines, assumptions, and evidence gaps.
-4. Send the plan to the configured reviewer.
-5. Apply accepted reviewer feedback.
-6. Repeat until consensus or 5 rounds.
-7. Produce one final conclusion plan for human review.
+4. Estimate the review duration from the current prompt and usage history.
+5. Send the plan to the configured reviewer.
+6. Apply accepted reviewer feedback.
+7. Repeat until consensus or 5 rounds.
+8. Produce one final conclusion plan for human review.
 
 ## Final Plan Contents
 

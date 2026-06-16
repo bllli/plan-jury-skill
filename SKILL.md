@@ -40,7 +40,8 @@ Configuration is stored in `~/.codex/plan-jury/reviewer.json` by default. The he
 - `endpoint`: optional path, default `/chat/completions`
 - `temperature`: optional numeric value, default `0.2`
 - `max_tokens`: optional positive integer, default `4096`
-- `timeout`: optional positive integer seconds, default `600`
+- `timeout`: optional positive integer seconds, default `1200`
+- `usage_log`: optional metadata-only usage log path, default `~/.codex/plan-jury/usage.jsonl`
 - `extra_headers`: optional JSON object for provider-specific headers
 - `extra_body`: optional JSON object merged into the request body
 
@@ -53,6 +54,7 @@ Environment variables can override config at runtime:
 - `PLAN_JURY_TEMPERATURE`
 - `PLAN_JURY_MAX_TOKENS`
 - `PLAN_JURY_REVIEWER_TIMEOUT`
+- `PLAN_JURY_USAGE_LOG`
 
 For local unauthenticated providers, use `--no-api-key`:
 
@@ -71,11 +73,12 @@ If the reviewer API is not configured or the API key is missing, stop and ask th
 1. Gather context from the conversation, repository docs, existing plans, relevant source files, tests, configs, and constraints. Include source-of-truth paths and line references when available.
 2. Classify privacy and stop-lines before sending anything to the reviewer. Never send raw secrets, credentials, private tokens, or production-sensitive data; summarize or redact them.
 3. Draft an initial plan markdown before calling the reviewer. If the technical approach is underspecified, infer carefully from available context and mark assumptions.
-4. Run up to 5 review rounds through the configured OpenAI-compatible reviewer. Stop early when consensus is reached.
-5. For each round, evaluate every reviewer issue internally. Apply valid changes to the plan. Keep any round notes transient inside the active reasoning context only.
-6. If consensus is not reached after 5 rounds, resolve the final plan as far as possible and include only the unresolved decisions that a human must make.
-7. Write exactly one final plan markdown to the user-requested path. If no path is requested, use a context-appropriate filename such as `plan.md`, `technical-plan.md`, or a feature-specific `*-plan.md` in the workspace.
-8. Do not create persistent review logs, transcript files, critique files, traceability tables, or reviewer-detail appendices. If temporary files were created while working, delete them before finishing.
+4. Before each reviewer call, run `run_reviewer.py --estimate` with the exact prompt that will be sent. Use the estimate and configured timeout to wait patiently for the call instead of repeatedly re-checking provider state.
+5. Run up to 5 review rounds through the configured OpenAI-compatible reviewer. Stop early when consensus is reached.
+6. For each round, evaluate every reviewer issue internally. Apply valid changes to the plan. Keep any round notes transient inside the active reasoning context only.
+7. If consensus is not reached after 5 rounds, resolve the final plan as far as possible and include only the unresolved decisions that a human must make.
+8. Write exactly one final plan markdown to the user-requested path. If no path is requested, use a context-appropriate filename such as `plan.md`, `technical-plan.md`, or a feature-specific `*-plan.md` in the workspace.
+9. Do not create persistent review transcripts, critique files, traceability tables, or reviewer-detail appendices. The helper's metadata-only usage JSONL is allowed for provider performance accounting. If other temporary files were created while working, delete them before finishing.
 
 ## Plan Structure
 
@@ -108,6 +111,11 @@ For each round, send the reviewer the current plan, previous internal review sum
 Invoke the configured reviewer API like this:
 
 ```bash
+python3 /Users/bllli/.codex/skills/plan-jury/scripts/run_reviewer.py --estimate <<'PROMPT'
+You are the external technical plan reviewer.
+...
+PROMPT
+
 python3 /Users/bllli/.codex/skills/plan-jury/scripts/run_reviewer.py <<'PROMPT'
 You are the external technical plan reviewer.
 
@@ -140,6 +148,7 @@ PROMPT
 After each reviewer response:
 
 - Apply accepted corrections directly to the plan.
+- Rely on the automatic metadata usage log for provider URL, model, token counts, duration, status, and errors. Do not copy these details into the final plan.
 - Use reviewer feedback only as working input. Do not append it to the final plan.
 - If Codex rejects a reviewer point, keep the rationale transient unless it changes the conclusion plan.
 - Do not hide unresolved material decisions, but express them as clean open decisions in the final plan, not as review-history records.

@@ -6,12 +6,13 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-import sys
 
 from reviewer_client import (
     DEFAULT_CONFIG,
     DEFAULT_ENDPOINT,
     DEFAULT_LANGUAGE,
+    DEFAULT_TIMEOUT_SECONDS,
+    DEFAULT_USAGE_LOG,
     call_reviewer,
     exit_with_error,
     validate_config,
@@ -75,7 +76,12 @@ def main() -> int:
     )
     parser.add_argument("--temperature", type=float, default=0.2)
     parser.add_argument("--max-tokens", type=int, default=4096)
-    parser.add_argument("--timeout", type=int, default=600)
+    parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_SECONDS)
+    parser.add_argument(
+        "--usage-log",
+        default=str(DEFAULT_USAGE_LOG),
+        help=f"Metadata-only reviewer usage log path. Defaults to {DEFAULT_USAGE_LOG}.",
+    )
     parser.add_argument(
         "--language",
         default=DEFAULT_LANGUAGE,
@@ -119,6 +125,7 @@ def main() -> int:
             "temperature": args.temperature,
             "max_tokens": args.max_tokens,
             "timeout": args.timeout,
+            "usage_log": args.usage_log,
         }
         config["language"] = args.language
         if args.api_key:

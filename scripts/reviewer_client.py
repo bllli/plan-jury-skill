@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
 import sys
+import time
 from typing import Any
 from urllib import error, request
 
@@ -19,10 +21,12 @@ ENV_ENDPOINT = "PLAN_JURY_ENDPOINT"
 ENV_TIMEOUT = "PLAN_JURY_REVIEWER_TIMEOUT"
 ENV_TEMPERATURE = "PLAN_JURY_TEMPERATURE"
 ENV_MAX_TOKENS = "PLAN_JURY_MAX_TOKENS"
+ENV_USAGE_LOG = "PLAN_JURY_USAGE_LOG"
 
 DEFAULT_CONFIG = Path.home() / ".codex" / "plan-jury" / "reviewer.json"
+DEFAULT_USAGE_LOG = Path.home() / ".codex" / "plan-jury" / "usage.jsonl"
 DEFAULT_ENDPOINT = "/chat/completions"
-DEFAULT_TIMEOUT_SECONDS = 600
+DEFAULT_TIMEOUT_SECONDS = 1200
 DEFAULT_LANGUAGE = "中文"
 DEFAULT_SYSTEM_PROMPT = (
     "You are an external senior technical plan reviewer. Review plans for "
@@ -93,6 +97,7 @@ def load_config(path: str | None = None) -> LoadedConfig:
         "base_url": os.environ.get(ENV_BASE_URL),
         "model": os.environ.get(ENV_MODEL),
         "endpoint": os.environ.get(ENV_ENDPOINT),
+        "usage_log": os.environ.get(ENV_USAGE_LOG),
     }
     for key, value in env_overrides.items():
         if value:
@@ -107,6 +112,7 @@ def load_config(path: str | None = None) -> LoadedConfig:
 
     config.setdefault("endpoint", DEFAULT_ENDPOINT)
     config.setdefault("timeout", DEFAULT_TIMEOUT_SECONDS)
+    config.setdefault("usage_log", str(DEFAULT_USAGE_LOG))
     config.setdefault("system_prompt", DEFAULT_SYSTEM_PROMPT)
     config.setdefault("temperature", 0.2)
     config.setdefault("language", DEFAULT_LANGUAGE)
@@ -131,6 +137,10 @@ def validate_config(config: dict[str, Any]) -> None:
     timeout = config.get("timeout")
     if not isinstance(timeout, int) or timeout <= 0:
         raise ReviewerConfigError("timeout must be a positive integer")
+
+    usage_log = config.get("usage_log")
+    if usage_log is not None and (not isinstance(usage_log, str) or not usage_log.strip()):
+        raise ReviewerConfigError("usage_log must be a non-empty string")
 
     for optional_number in ("temperature",):
         value = config.get(optional_number)
@@ -165,7 +175,8 @@ Configuration file:
   {DEFAULT_CONFIG}
 
 Environment overrides:
-  {ENV_CONFIG}, {ENV_BASE_URL}, {ENV_MODEL}, {ENV_ENDPOINT}
+  {ENV_CONFIG}, {ENV_BASE_URL}, {ENV_MODEL}, {ENV_ENDPOINT}, {ENV_USAGE_LOG},
+  {ENV_TIMEOUT}, {ENV_TEMPERATURE}, {ENV_MAX_TOKENS}
 """
 
 
@@ -182,6 +193,154 @@ def completion_url(config: dict[str, Any]) -> str:
     if base_url.endswith("/chat/completions"):
         return base_url
     return base_url + endpoint
+
+
+def approximate_token_count(text: str) -> int:
+    """Approximate tokens without provider-specific tokenizers."""
+    if not text:
+        return 0
+    ascii_chars = 0
+    non_ascii_chars = 0
+    for char in text:
+        if char.isspace():
+            continue
+        if ord(char) < 128:
+            ascii_chars += 1
+        else:
+            non_ascii_chars += 1
+    return max(1, int((ascii_chars / 4) + (non_ascii_chars / 1.6)))
+
+
+def usage_log_path(config: dict[str, Any]) -> Path:
+    configured = os.environ.get(ENV_USAGE_LOG) or config.get("usage_log") or DEFAULT_USAGE_LOG
+    return Path(str(configured)).expanduser()
+
+
+def append_usage_record(config: dict[str, Any], record: dict[str, Any]) -> None:
+    path = usage_log_path(config)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
+
+
+def base_usage_record(
+    *,
+    config: dict[str, Any],
+    prompt: str,
+    request_url: str,
+) -> dict[str, Any]:
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "base_url": config.get("base_url"),
+        "endpoint": config.get("endpoint") or DEFAULT_ENDPOINT,
+        "request_url": request_url,
+        "model": config.get("model"),
+        "language": config.get("language") or DEFAULT_LANGUAGE,
+        "temperature": config.get("temperature"),
+        "max_tokens": config.get("max_tokens"),
+        "timeout_seconds": config.get("timeout"),
+        "prompt_chars": len(prompt),
+        "estimated_prompt_tokens": approximate_token_count(prompt),
+    }
+
+
+def add_usage_fields(record: dict[str, Any], data: dict[str, Any]) -> None:
+    usage = data.get("usage")
+    if not isinstance(usage, dict):
+        return
+    token_fields = {
+        "prompt_tokens": "prompt_tokens",
+        "completion_tokens": "completion_tokens",
+        "total_tokens": "total_tokens",
+        "input_tokens": "input_tokens",
+        "output_tokens": "output_tokens",
+    }
+    for output_key, usage_key in token_fields.items():
+        value = usage.get(usage_key)
+        if isinstance(value, (int, float)):
+            record[output_key] = value
+    record["usage"] = usage
+
+
+def load_usage_records(config: dict[str, Any], limit: int = 200) -> list[dict[str, Any]]:
+    path = usage_log_path(config)
+    if not path.exists():
+        return []
+    records: list[dict[str, Any]] = []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    for line in lines[-limit:]:
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(item, dict):
+            records.append(item)
+    return records
+
+
+def estimate_duration(prompt: str, config: dict[str, Any]) -> dict[str, Any]:
+    estimated_tokens = approximate_token_count(prompt)
+    matching = [
+        item
+        for item in load_usage_records(config)
+        if item.get("status") == "success"
+        and item.get("base_url") == config.get("base_url")
+        and item.get("model") == config.get("model")
+        and isinstance(item.get("duration_seconds"), (int, float))
+    ]
+    seconds_per_token: list[float] = []
+    for item in matching:
+        token_count = (
+            item.get("total_tokens")
+            or _sum_numeric(item.get("input_tokens"), item.get("output_tokens"))
+            or _sum_numeric(item.get("prompt_tokens"), item.get("completion_tokens"))
+            or item.get("estimated_prompt_tokens")
+        )
+        duration = item.get("duration_seconds")
+        if isinstance(token_count, (int, float)) and token_count > 0 and isinstance(duration, (int, float)):
+            seconds_per_token.append(float(duration) / float(token_count))
+
+    if seconds_per_token:
+        seconds_per_token.sort()
+        median = seconds_per_token[len(seconds_per_token) // 2]
+        estimated_seconds = max(10.0, median * max(estimated_tokens, 1))
+        basis = "history"
+    else:
+        estimated_seconds = max(30.0, min(900.0, estimated_tokens * 0.08))
+        basis = "heuristic"
+
+    timeout_seconds = config.get("timeout", DEFAULT_TIMEOUT_SECONDS)
+    return {
+        "base_url": config.get("base_url"),
+        "endpoint": config.get("endpoint") or DEFAULT_ENDPOINT,
+        "model": config.get("model"),
+        "language": config.get("language") or DEFAULT_LANGUAGE,
+        "prompt_chars": len(prompt),
+        "estimated_prompt_tokens": estimated_tokens,
+        "estimated_seconds": round(estimated_seconds, 1),
+        "estimated_minutes": round(estimated_seconds / 60, 2),
+        "timeout_seconds": timeout_seconds,
+        "history_matches": len(seconds_per_token),
+        "basis": basis,
+        "usage_log": str(usage_log_path(config)),
+    }
+
+
+def _sum_numeric(*values: Any) -> float | None:
+    total = 0.0
+    seen = False
+    for value in values:
+        if isinstance(value, (int, float)):
+            total += float(value)
+            seen = True
+    return total if seen else None
 
 
 def call_reviewer(prompt: str, config: dict[str, Any]) -> str:
@@ -222,22 +381,85 @@ def call_reviewer(prompt: str, config: dict[str, Any]) -> str:
         headers.update({str(k): str(v) for k, v in config["extra_headers"].items()})
 
     body = json.dumps(payload).encode("utf-8")
-    req = request.Request(completion_url(config), data=body, headers=headers, method="POST")
+    url = completion_url(config)
+    req = request.Request(url, data=body, headers=headers, method="POST")
+    started_at = time.monotonic()
+    record = base_usage_record(
+        config=config,
+        prompt=prompt,
+        request_url=url,
+    )
     try:
         with request.urlopen(req, timeout=config["timeout"]) as response:
             response_body = response.read().decode("utf-8")
     except error.HTTPError as exc:
+        duration = time.monotonic() - started_at
         response_body = exc.read().decode("utf-8", errors="replace")
+        record.update(
+            {
+                "status": "http_error",
+                "http_status": exc.code,
+                "duration_seconds": round(duration, 3),
+                "error": response_body[:1000],
+            }
+        )
+        append_usage_record(config, record)
         raise ReviewerRequestError(f"Reviewer API HTTP {exc.code}: {response_body}") from exc
     except error.URLError as exc:
+        duration = time.monotonic() - started_at
+        record.update(
+            {
+                "status": "request_error",
+                "duration_seconds": round(duration, 3),
+                "error": str(exc)[:1000],
+            }
+        )
+        append_usage_record(config, record)
         raise ReviewerRequestError(f"Reviewer API request failed: {exc}") from exc
 
     try:
         data = json.loads(response_body)
     except json.JSONDecodeError as exc:
+        duration = time.monotonic() - started_at
+        record.update(
+            {
+                "status": "invalid_json",
+                "duration_seconds": round(duration, 3),
+                "response_chars": len(response_body),
+                "error": response_body[:1000],
+            }
+        )
+        append_usage_record(config, record)
         raise ReviewerRequestError(f"Reviewer API returned non-JSON response: {response_body}") from exc
 
-    return extract_content(data)
+    try:
+        content = extract_content(data)
+    except ReviewerRequestError as exc:
+        duration = time.monotonic() - started_at
+        record.update(
+            {
+                "status": "invalid_response",
+                "duration_seconds": round(duration, 3),
+                "response_chars": len(response_body),
+                "error": str(exc)[:1000],
+            }
+        )
+        add_usage_fields(record, data)
+        append_usage_record(config, record)
+        raise
+
+    duration = time.monotonic() - started_at
+    record.update(
+        {
+            "status": "success",
+            "duration_seconds": round(duration, 3),
+            "response_chars": len(content),
+            "estimated_response_tokens": approximate_token_count(content),
+        }
+    )
+    add_usage_fields(record, data)
+    append_usage_record(config, record)
+    return content
 
 
 def extract_content(data: dict[str, Any]) -> str:
