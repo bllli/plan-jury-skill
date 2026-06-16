@@ -14,7 +14,7 @@ The goal is not to let one model rubber-stamp its own plan. Codex drafts and rev
 - Runs a bounded review loop with verdicts: `APPROVED`, `MOSTLY_GOOD`, `NEEDS_REVISION`, `BLOCKED`.
 - Stops early when consensus is reached.
 - Escalates unresolved disagreements to a `Needs Human Decision` section after 5 rounds.
-- Maintains review logs and a traceability table from reviewer finding to Codex disposition.
+- Produces one clean final plan document without persisted review transcript details.
 - Uses prompt-injection boundaries around the reviewed plan.
 - Requires privacy classification and stop-lines before sending content to the reviewer.
 
@@ -96,6 +96,7 @@ Supported config fields:
 - `base_url`: OpenAI-compatible base URL, usually ending in `/v1`
 - `model`: reviewer model name
 - `api_key`: API key stored in the config file
+- `language`: language the reviewer must use for review responses, default `中文`
 - `endpoint`: endpoint path, default `/chat/completions`
 - `temperature`: default `0.2`
 - `max_tokens`: default `4096`
@@ -139,13 +140,12 @@ The skill will:
 4. Send the plan to the configured reviewer.
 5. Apply accepted reviewer feedback.
 6. Repeat until consensus or 5 rounds.
-7. Produce a final plan for human review.
+7. Produce one final conclusion plan for human review.
 
 ## Final Plan Contents
 
 The final markdown is expected to include:
 
-- Review gate summary
 - Objective
 - Background and current state
 - Requirements and non-goals
@@ -161,9 +161,9 @@ The final markdown is expected to include:
 - Security, privacy, performance, compatibility, and observability notes
 - Risks and mitigations
 - Open questions
-- Decision log
-- Review transcript summary
 - Human review checklist
+
+The final document intentionally excludes review rounds, reviewer verdicts, ratings, traceability tables, raw prompts, transcript summaries, and review log paths.
 
 ## Design Notes
 

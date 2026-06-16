@@ -23,6 +23,7 @@ ENV_MAX_TOKENS = "PLAN_JURY_MAX_TOKENS"
 DEFAULT_CONFIG = Path.home() / ".codex" / "plan-jury" / "reviewer.json"
 DEFAULT_ENDPOINT = "/chat/completions"
 DEFAULT_TIMEOUT_SECONDS = 600
+DEFAULT_LANGUAGE = "中文"
 DEFAULT_SYSTEM_PROMPT = (
     "You are an external senior technical plan reviewer. Review plans for "
     "correctness, completeness, hidden assumptions, implementation risk, "
@@ -108,6 +109,7 @@ def load_config(path: str | None = None) -> LoadedConfig:
     config.setdefault("timeout", DEFAULT_TIMEOUT_SECONDS)
     config.setdefault("system_prompt", DEFAULT_SYSTEM_PROMPT)
     config.setdefault("temperature", 0.2)
+    config.setdefault("language", DEFAULT_LANGUAGE)
 
     validate_config(config)
     return LoadedConfig(config=config, source=source)
@@ -138,6 +140,10 @@ def validate_config(config: dict[str, Any]) -> None:
     max_tokens = config.get("max_tokens")
     if max_tokens is not None and (not isinstance(max_tokens, int) or max_tokens <= 0):
         raise ReviewerConfigError("max_tokens must be a positive integer")
+
+    language = config.get("language")
+    if language is not None and (not isinstance(language, str) or not language.strip()):
+        raise ReviewerConfigError("language must be a non-empty string")
 
     for optional_object in ("extra_headers", "extra_body"):
         value = config.get(optional_object, {})
@@ -182,10 +188,18 @@ def call_reviewer(prompt: str, config: dict[str, Any]) -> str:
     if not prompt.strip():
         raise ReviewerConfigError("Reviewer prompt was empty.")
 
+    system_prompt = config.get("system_prompt") or DEFAULT_SYSTEM_PROMPT
+    language = config.get("language") or DEFAULT_LANGUAGE
+    if isinstance(language, str) and language.strip():
+        system_prompt = (
+            f"{system_prompt}\n\n"
+            f"You must write the entire review response in this language: {language.strip()}."
+        )
+
     payload: dict[str, Any] = {
         "model": config["model"],
         "messages": [
-            {"role": "system", "content": config.get("system_prompt") or DEFAULT_SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt},
         ],
         "temperature": config.get("temperature", 0.2),

@@ -11,6 +11,7 @@ import sys
 from reviewer_client import (
     DEFAULT_CONFIG,
     DEFAULT_ENDPOINT,
+    DEFAULT_LANGUAGE,
     call_reviewer,
     exit_with_error,
     validate_config,
@@ -76,6 +77,11 @@ def main() -> int:
     parser.add_argument("--max-tokens", type=int, default=4096)
     parser.add_argument("--timeout", type=int, default=600)
     parser.add_argument(
+        "--language",
+        default=DEFAULT_LANGUAGE,
+        help=f"Language the reviewer must use for all review responses. Defaults to {DEFAULT_LANGUAGE}.",
+    )
+    parser.add_argument(
         "--extra-header",
         action="append",
         default=[],
@@ -114,6 +120,7 @@ def main() -> int:
             "max_tokens": args.max_tokens,
             "timeout": args.timeout,
         }
+        config["language"] = args.language
         if args.api_key:
             config["api_key"] = args.api_key
         extra_headers = parse_extra_header(args.extra_header)

@@ -36,6 +36,7 @@ Configuration is stored in `~/.codex/plan-jury/reviewer.json` by default. The he
 - `base_url`: OpenAI-compatible base URL, usually ending in `/v1`
 - `model`: reviewer model name
 - `api_key`: API key stored in the config file
+- `language`: language the reviewer must use for every review response, default `中文`
 - `endpoint`: optional path, default `/chat/completions`
 - `temperature`: optional numeric value, default `0.2`
 - `max_tokens`: optional positive integer, default `4096`
@@ -70,18 +71,17 @@ If the reviewer API is not configured or the API key is missing, stop and ask th
 1. Gather context from the conversation, repository docs, existing plans, relevant source files, tests, configs, and constraints. Include source-of-truth paths and line references when available.
 2. Classify privacy and stop-lines before sending anything to the reviewer. Never send raw secrets, credentials, private tokens, or production-sensitive data; summarize or redact them.
 3. Draft an initial plan markdown before calling the reviewer. If the technical approach is underspecified, infer carefully from available context and mark assumptions.
-4. Create or update a review log. Prefer `reviews/{plan-file-name-without-md}-review.md`; if that is awkward, place the review log next to the plan.
-5. Run up to 5 review rounds through the configured OpenAI-compatible reviewer. Stop early when consensus is reached.
-6. For each round, evaluate every reviewer issue. Apply valid changes to the plan. Record rejected or deferred findings with rationale and evidence needed.
-7. If consensus is not reached after 5 rounds, mark the final plan as needing human decision and summarize the unresolved disagreements.
-8. Write the final plan markdown to the user-requested path. If no path is requested, use a context-appropriate filename such as `plan.md`, `technical-plan.md`, or a feature-specific `*-plan.md` in the workspace.
+4. Run up to 5 review rounds through the configured OpenAI-compatible reviewer. Stop early when consensus is reached.
+5. For each round, evaluate every reviewer issue internally. Apply valid changes to the plan. Keep any round notes transient inside the active reasoning context only.
+6. If consensus is not reached after 5 rounds, resolve the final plan as far as possible and include only the unresolved decisions that a human must make.
+7. Write exactly one final plan markdown to the user-requested path. If no path is requested, use a context-appropriate filename such as `plan.md`, `technical-plan.md`, or a feature-specific `*-plan.md` in the workspace.
+8. Do not create persistent review logs, transcript files, critique files, traceability tables, or reviewer-detail appendices. If temporary files were created while working, delete them before finishing.
 
 ## Plan Structure
 
 Include these sections unless the task clearly does not need one:
 
 - Title, status, date, owner, and scope
-- Review gate summary: consensus status, rounds completed, reviewer model, and review log path
 - Objective
 - Background and current state
 - Requirements and non-goals
@@ -97,15 +97,13 @@ Include these sections unless the task clearly does not need one:
 - Security, privacy, performance, compatibility, and observability considerations
 - Risks and mitigations
 - Open questions
-- Decision log
-- Review transcript summary
 - Human review checklist
 
 Keep the plan concrete enough that another engineer can implement it without re-discovering the approach.
 
 ## Review Loop
 
-For each round, send the reviewer the current plan, previous review summary, Codex's responses, accepted changes, rejected/deferred findings, and explicit questions still under dispute. Use the template in `references/review-prompt-template.md`.
+For each round, send the reviewer the current plan, previous internal review summary, Codex's responses, accepted changes, rejected/deferred findings, and explicit questions still under dispute. Use the template in `references/review-prompt-template.md`. The reviewer response language must come from the reviewer config file's `language` field, defaulting to `中文`.
 
 Invoke the configured reviewer API like this:
 
@@ -119,12 +117,12 @@ Review the plan for correctness, completeness, risk, hidden assumptions, missing
 
 Return markdown with:
 - Verdict: APPROVED, MOSTLY_GOOD, NEEDS_REVISION, or BLOCKED
-- Round rating out of 10
 - Previous round issue tracking
 - Blocking issues with severity, location, evidence, recommendation, and acceptance criteria
 - Non-blocking suggestions
 - Questions for Codex
 - Specific plan edits required
+- Use the language configured in reviewer.json
 
 Current plan:
 ════════════════ DOCUMENT START ════════════════
@@ -142,10 +140,9 @@ PROMPT
 After each reviewer response:
 
 - Apply accepted corrections directly to the plan.
-- Append the round to the review log.
-- Maintain a traceability table: reviewer finding, disposition, plan change, rationale, and remaining action.
-- If Codex rejects a reviewer point, record the reviewer concern, Codex rationale, and what evidence would resolve it.
-- Do not hide material disagreements. Preserve them in the review transcript summary.
+- Use reviewer feedback only as working input. Do not append it to the final plan.
+- If Codex rejects a reviewer point, keep the rationale transient unless it changes the conclusion plan.
+- Do not hide unresolved material decisions, but express them as clean open decisions in the final plan, not as review-history records.
 - Ask the user during the loop only when missing user-specific information prevents meaningful progress. Otherwise continue until consensus, round 5, or a hard tool failure.
 
 ## Consensus Rules
@@ -164,16 +161,14 @@ Continue to another round when:
 - The reviewer raises unresolved security, data loss, migration, correctness, testing, or rollout concerns.
 - The plan changed materially after the last review and those changes need reviewer confirmation.
 
-Stop after 5 rounds even without consensus. In that case, the final plan must contain a `Needs Human Decision` section with each unresolved item, the reviewer position, Codex position, and the recommended human decision to make.
+Stop after 5 rounds even without consensus. In that case, the final plan may contain a `Needs Human Decision` section with concise unresolved decisions and options, but must not include reviewer/Codex debate transcripts or per-round details.
 
 ## Final Artifact
 
-The final markdown must be suitable for human audit:
+The final markdown must be a clean conclusion plan:
 
-- Clearly state whether consensus was reached.
-- Include the number of review rounds completed.
-- Separate agreed plan content from unresolved disagreements.
-- Include the review traceability table and review log path.
-- Include enough review history to audit the decision process without dumping every raw prompt.
+- Keep exactly one final plan document.
+- Include only the concluded方案内容 and concise human decision items when needed.
+- Do not include review rounds, reviewer verdicts, ratings, traceability tables, raw prompts, review transcript summaries, or review log paths.
 - Mark assumptions that still require validation.
 - Avoid implementation changes unless the user separately requested them.

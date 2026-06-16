@@ -46,7 +46,7 @@ def main() -> int:
                 "Reviewer API configured "
                 f"from {loaded.source}: base_url={loaded.config['base_url']} "
                 f"endpoint={loaded.config['endpoint']} model={loaded.config['model']} "
-                f"auth={auth_mode}"
+                f"language={loaded.config.get('language')} auth={auth_mode}"
             )
             return 0
 
