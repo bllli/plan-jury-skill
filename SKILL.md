@@ -36,7 +36,7 @@ Configuration is stored in `~/.codex/plan-jury/reviewer.json` by default. The he
 - `base_url`: OpenAI-compatible base URL, usually ending in `/v1`
 - `model`: reviewer model name
 - `api_key`: API key stored in the config file
-- `language`: language the reviewer must use for every review response, default `中文`
+- `language`: language that reviewer responses, plan drafts, and the final plan markdown must use, default `中文`
 - `endpoint`: optional path, default `/chat/completions`
 - `temperature`: optional numeric value, default `0.2`
 - `max_tokens`: optional positive integer, default `4096`
@@ -72,7 +72,7 @@ If the reviewer API is not configured or the API key is missing, stop and ask th
 
 1. Gather context from the conversation, repository docs, existing plans, relevant source files, tests, configs, and constraints. Include source-of-truth paths and line references when available.
 2. Classify privacy and stop-lines before sending anything to the reviewer. Never send raw secrets, credentials, private tokens, or production-sensitive data; summarize or redact them.
-3. Draft an initial plan markdown before calling the reviewer. If the technical approach is underspecified, infer carefully from available context and mark assumptions.
+3. Determine the configured `language` from `reviewer.json` or `run_reviewer.py --check`; default to `中文`. Draft every plan version and the final saved plan in this language.
 4. Before each reviewer call, run `run_reviewer.py --estimate` with the exact prompt that will be sent. Use the estimate and configured timeout to wait patiently for the call instead of repeatedly re-checking provider state.
 5. Run up to 5 review rounds through the configured OpenAI-compatible reviewer. Stop early when consensus is reached.
 6. For each round, evaluate every reviewer issue internally. Apply valid changes to the plan. Keep any round notes transient inside the active reasoning context only.
@@ -106,7 +106,7 @@ Keep the plan concrete enough that another engineer can implement it without re-
 
 ## Review Loop
 
-For each round, send the reviewer the current plan, previous internal review summary, Codex's responses, accepted changes, rejected/deferred findings, and explicit questions still under dispute. Use the template in `references/review-prompt-template.md`. The reviewer response language must come from the reviewer config file's `language` field, defaulting to `中文`.
+For each round, send the reviewer the current plan, previous internal review summary, Codex's responses, accepted changes, rejected/deferred findings, and explicit questions still under dispute. Use the template in `references/review-prompt-template.md`. The reviewer response language, current plan language, and final plan language must come from the reviewer config file's `language` field, defaulting to `中文`.
 
 Invoke the configured reviewer API like this:
 
@@ -177,6 +177,7 @@ Stop after 5 rounds even without consensus. In that case, the final plan may con
 The final markdown must be a clean conclusion plan:
 
 - Keep exactly one final plan document.
+- Write the final plan markdown in the configured `language` from `reviewer.json`, defaulting to `中文`.
 - Include only the concluded方案内容 and concise human decision items when needed.
 - Do not include review rounds, reviewer verdicts, ratings, traceability tables, raw prompts, review transcript summaries, or review log paths.
 - Mark assumptions that still require validation.

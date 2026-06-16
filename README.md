@@ -98,7 +98,7 @@ Supported config fields:
 - `base_url`: OpenAI-compatible base URL, usually ending in `/v1`
 - `model`: reviewer model name
 - `api_key`: API key stored in the config file
-- `language`: language the reviewer must use for review responses, default `中文`
+- `language`: language that reviewer responses, plan drafts, and the final plan markdown must use, default `中文`
 - `endpoint`: endpoint path, default `/chat/completions`
 - `temperature`: default `0.2`
 - `max_tokens`: default `4096`
@@ -155,15 +155,18 @@ The skill will:
 1. Gather repository and conversation context.
 2. Draft a detailed plan markdown.
 3. Classify privacy, stop-lines, assumptions, and evidence gaps.
-4. Estimate the review duration from the current prompt and usage history.
-5. Send the plan to the configured reviewer.
-6. Apply accepted reviewer feedback.
-7. Repeat until consensus or 5 rounds.
-8. Produce one final conclusion plan for human review.
+4. Use the configured `language` for the draft, reviewer prompt requirements, and final plan.
+5. Estimate the review duration from the current prompt and usage history.
+6. Send the plan to the configured reviewer.
+7. Apply accepted reviewer feedback.
+8. Repeat until consensus or 5 rounds.
+9. Produce one final conclusion plan for human review.
 
 ## Final Plan Contents
 
 The final markdown is expected to include:
+
+It must be written in the configured `language` from `~/.codex/plan-jury/reviewer.json`, defaulting to `中文`.
 
 - Objective
 - Background and current state
