@@ -40,9 +40,7 @@ def main() -> int:
 
         if args.check:
             auth_mode = "none"
-            if loaded.config.get("api_key_env"):
-                auth_mode = f"env:{loaded.config['api_key_env']}"
-            elif loaded.config.get("api_key"):
+            if loaded.config.get("api_key"):
                 auth_mode = "config:api_key"
             print(
                 "Reviewer API configured "

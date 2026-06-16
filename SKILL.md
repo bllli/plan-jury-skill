@@ -21,7 +21,7 @@ The external reviewer must be configured during installation or before first use
 python3 /Users/bllli/.codex/skills/plan-jury/scripts/configure_reviewer.py \
   --base-url 'https://api.openai.com/v1' \
   --model 'gpt-4.1' \
-  --api-key-env OPENAI_API_KEY \
+  --api-key 'YOUR_API_KEY' \
   --test
 ```
 
@@ -35,8 +35,7 @@ Configuration is stored in `~/.codex/plan-jury/reviewer.json` by default. The he
 
 - `base_url`: OpenAI-compatible base URL, usually ending in `/v1`
 - `model`: reviewer model name
-- `api_key_env`: environment variable holding the API key
-- `api_key`: literal API key, only when env-based auth is impractical
+- `api_key`: API key stored in the config file
 - `endpoint`: optional path, default `/chat/completions`
 - `temperature`: optional numeric value, default `0.2`
 - `max_tokens`: optional positive integer, default `4096`
@@ -49,8 +48,6 @@ Environment variables can override config at runtime:
 - `PLAN_JURY_CONFIG`
 - `PLAN_JURY_BASE_URL`
 - `PLAN_JURY_MODEL`
-- `PLAN_JURY_API_KEY`
-- `PLAN_JURY_API_KEY_ENV`
 - `PLAN_JURY_ENDPOINT`
 - `PLAN_JURY_TEMPERATURE`
 - `PLAN_JURY_MAX_TOKENS`
@@ -66,7 +63,7 @@ python3 /Users/bllli/.codex/skills/plan-jury/scripts/configure_reviewer.py \
   --test
 ```
 
-If the reviewer API is not configured or the API key env var is missing, stop and ask the user to configure it. Do not invent or simulate a reviewer response.
+If the reviewer API is not configured or the API key is missing, stop and ask the user to configure it. Do not invent or simulate a reviewer response.
 
 ## Workflow
 

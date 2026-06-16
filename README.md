@@ -10,7 +10,7 @@ The goal is not to let one model rubber-stamp its own plan. Codex drafts and rev
 
 - Generates a human-reviewable technical plan markdown.
 - Calls an external OpenAI-compatible `/chat/completions` reviewer.
-- Supports `base_url`, `model`, API key env vars, local no-auth models, provider headers, and extra request body fields.
+- Supports `base_url`, `model`, config-file API keys, local no-auth models, provider headers, and extra request body fields.
 - Runs a bounded review loop with verdicts: `APPROVED`, `MOSTLY_GOOD`, `NEEDS_REVISION`, `BLOCKED`.
 - Stops early when consensus is reached.
 - Escalates unresolved disagreements to a `Needs Human Decision` section after 5 rounds.
@@ -62,12 +62,10 @@ The reviewer must expose an OpenAI-compatible chat completions API.
 OpenAI example:
 
 ```bash
-export OPENAI_API_KEY='...'
-
 python3 ~/.codex/skills/plan-jury/scripts/configure_reviewer.py \
   --base-url 'https://api.openai.com/v1' \
   --model 'gpt-4.1' \
-  --api-key-env OPENAI_API_KEY \
+  --api-key 'YOUR_API_KEY' \
   --test
 ```
 
@@ -97,8 +95,7 @@ Supported config fields:
 
 - `base_url`: OpenAI-compatible base URL, usually ending in `/v1`
 - `model`: reviewer model name
-- `api_key_env`: environment variable holding the API key
-- `api_key`: literal API key, when env-based auth is impractical
+- `api_key`: API key stored in the config file
 - `endpoint`: endpoint path, default `/chat/completions`
 - `temperature`: default `0.2`
 - `max_tokens`: default `4096`
@@ -111,14 +108,10 @@ Runtime environment overrides:
 - `PLAN_JURY_CONFIG`
 - `PLAN_JURY_BASE_URL`
 - `PLAN_JURY_MODEL`
-- `PLAN_JURY_API_KEY`
-- `PLAN_JURY_API_KEY_ENV`
 - `PLAN_JURY_ENDPOINT`
 - `PLAN_JURY_TEMPERATURE`
 - `PLAN_JURY_MAX_TOKENS`
 - `PLAN_JURY_REVIEWER_TIMEOUT`
-
-Legacy `PLAN_REVIEW_*` variables and `~/.codex/plan-review/reviewer.json` are still read as fallbacks.
 
 ## Usage
 

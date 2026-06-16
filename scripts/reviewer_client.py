@@ -15,25 +15,12 @@ from urllib import error, request
 ENV_CONFIG = "PLAN_JURY_CONFIG"
 ENV_BASE_URL = "PLAN_JURY_BASE_URL"
 ENV_MODEL = "PLAN_JURY_MODEL"
-ENV_API_KEY = "PLAN_JURY_API_KEY"
-ENV_API_KEY_ENV = "PLAN_JURY_API_KEY_ENV"
 ENV_ENDPOINT = "PLAN_JURY_ENDPOINT"
 ENV_TIMEOUT = "PLAN_JURY_REVIEWER_TIMEOUT"
 ENV_TEMPERATURE = "PLAN_JURY_TEMPERATURE"
 ENV_MAX_TOKENS = "PLAN_JURY_MAX_TOKENS"
 
-LEGACY_ENV_CONFIG = "PLAN_REVIEW_CONFIG"
-LEGACY_ENV_BASE_URL = "PLAN_REVIEW_BASE_URL"
-LEGACY_ENV_MODEL = "PLAN_REVIEW_MODEL"
-LEGACY_ENV_API_KEY = "PLAN_REVIEW_API_KEY"
-LEGACY_ENV_API_KEY_ENV = "PLAN_REVIEW_API_KEY_ENV"
-LEGACY_ENV_ENDPOINT = "PLAN_REVIEW_ENDPOINT"
-LEGACY_ENV_TIMEOUT = "PLAN_REVIEW_REVIEWER_TIMEOUT"
-LEGACY_ENV_TEMPERATURE = "PLAN_REVIEW_TEMPERATURE"
-LEGACY_ENV_MAX_TOKENS = "PLAN_REVIEW_MAX_TOKENS"
-
 DEFAULT_CONFIG = Path.home() / ".codex" / "plan-jury" / "reviewer.json"
-LEGACY_DEFAULT_CONFIG = Path.home() / ".codex" / "plan-review" / "reviewer.json"
 DEFAULT_ENDPOINT = "/chat/completions"
 DEFAULT_TIMEOUT_SECONDS = 600
 DEFAULT_SYSTEM_PROMPT = (
@@ -87,23 +74,12 @@ def _optional_int(raw: str, name: str) -> int:
     return value
 
 
-def getenv(name: str, legacy_name: str | None = None) -> str | None:
-    value = os.environ.get(name)
-    if value:
-        return value
-    if legacy_name:
-        return os.environ.get(legacy_name)
-    return None
-
-
 def default_config_path(path: str | None = None) -> Path:
     if path:
         return Path(path).expanduser()
-    configured = getenv(ENV_CONFIG, LEGACY_ENV_CONFIG)
+    configured = os.environ.get(ENV_CONFIG)
     if configured:
         return Path(configured).expanduser()
-    if LEGACY_DEFAULT_CONFIG.exists() and not DEFAULT_CONFIG.exists():
-        return LEGACY_DEFAULT_CONFIG
     return DEFAULT_CONFIG
 
 
@@ -113,25 +89,20 @@ def load_config(path: str | None = None) -> LoadedConfig:
     source = str(config_path) if config_path.exists() else "environment"
 
     env_overrides: dict[str, Any] = {
-        "base_url": getenv(ENV_BASE_URL, LEGACY_ENV_BASE_URL),
-        "model": getenv(ENV_MODEL, LEGACY_ENV_MODEL),
-        "api_key": getenv(ENV_API_KEY, LEGACY_ENV_API_KEY),
-        "api_key_env": getenv(ENV_API_KEY_ENV, LEGACY_ENV_API_KEY_ENV),
-        "endpoint": getenv(ENV_ENDPOINT, LEGACY_ENV_ENDPOINT),
+        "base_url": os.environ.get(ENV_BASE_URL),
+        "model": os.environ.get(ENV_MODEL),
+        "endpoint": os.environ.get(ENV_ENDPOINT),
     }
     for key, value in env_overrides.items():
         if value:
             config[key] = value
 
-    timeout = getenv(ENV_TIMEOUT, LEGACY_ENV_TIMEOUT)
-    temperature = getenv(ENV_TEMPERATURE, LEGACY_ENV_TEMPERATURE)
-    max_tokens = getenv(ENV_MAX_TOKENS, LEGACY_ENV_MAX_TOKENS)
-    if timeout:
-        config["timeout"] = _optional_int(timeout, ENV_TIMEOUT)
-    if temperature:
-        config["temperature"] = _optional_float(temperature, ENV_TEMPERATURE)
-    if max_tokens:
-        config["max_tokens"] = _optional_int(max_tokens, ENV_MAX_TOKENS)
+    if os.environ.get(ENV_TIMEOUT):
+        config["timeout"] = _optional_int(os.environ[ENV_TIMEOUT], ENV_TIMEOUT)
+    if os.environ.get(ENV_TEMPERATURE):
+        config["temperature"] = _optional_float(os.environ[ENV_TEMPERATURE], ENV_TEMPERATURE)
+    if os.environ.get(ENV_MAX_TOKENS):
+        config["max_tokens"] = _optional_int(os.environ[ENV_MAX_TOKENS], ENV_MAX_TOKENS)
 
     config.setdefault("endpoint", DEFAULT_ENDPOINT)
     config.setdefault("timeout", DEFAULT_TIMEOUT_SECONDS)
@@ -181,16 +152,14 @@ Configure an OpenAI-compatible chat completions endpoint:
   python3 /Users/bllli/.codex/skills/plan-jury/scripts/configure_reviewer.py \\
     --base-url 'https://api.openai.com/v1' \\
     --model 'gpt-4.1' \\
-    --api-key-env OPENAI_API_KEY \\
+    --api-key 'YOUR_API_KEY' \\
     --test
 
 Configuration file:
   {DEFAULT_CONFIG}
 
 Environment overrides:
-  {ENV_CONFIG}, {ENV_BASE_URL}, {ENV_MODEL}, {ENV_API_KEY}, {ENV_API_KEY_ENV}, {ENV_ENDPOINT}
-
-Legacy PLAN_REVIEW_* environment variables and ~/.codex/plan-review/reviewer.json are still read as fallbacks.
+  {ENV_CONFIG}, {ENV_BASE_URL}, {ENV_MODEL}, {ENV_ENDPOINT}
 """
 
 
@@ -198,13 +167,6 @@ def resolve_api_key(config: dict[str, Any]) -> str | None:
     api_key = config.get("api_key")
     if isinstance(api_key, str) and api_key:
         return api_key
-
-    api_key_env = config.get("api_key_env")
-    if isinstance(api_key_env, str) and api_key_env:
-        value = os.environ.get(api_key_env)
-        if not value:
-            raise ReviewerConfigError(f"API key env var is configured but not set: {api_key_env}")
-        return value
     return None
 
 

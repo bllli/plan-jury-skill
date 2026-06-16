@@ -58,14 +58,9 @@ def main() -> int:
     parser.add_argument("--base-url", required=True, help="OpenAI-compatible base URL, usually ending in /v1.")
     parser.add_argument("--model", required=True, help="Reviewer model name.")
     parser.add_argument(
-        "--api-key-env",
-        default=None,
-        help="Environment variable containing the API key, for example OPENAI_API_KEY.",
-    )
-    parser.add_argument(
         "--api-key",
         default=None,
-        help="API key to store in the config file. Prefer --api-key-env when possible.",
+        help="API key to store in the config file.",
     )
     parser.add_argument(
         "--no-api-key",
@@ -104,8 +99,8 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        if sum(bool(v) for v in (args.api_key_env, args.api_key, args.no_api_key)) != 1:
-            raise ValueError("Choose exactly one of --api-key-env, --api-key, or --no-api-key.")
+        if sum(bool(v) for v in (args.api_key, args.no_api_key)) != 1:
+            raise ValueError("Choose exactly one of --api-key or --no-api-key.")
         if args.max_tokens <= 0:
             raise ValueError("--max-tokens must be greater than 0.")
         if args.timeout <= 0:
@@ -119,8 +114,6 @@ def main() -> int:
             "max_tokens": args.max_tokens,
             "timeout": args.timeout,
         }
-        if args.api_key_env:
-            config["api_key_env"] = args.api_key_env
         if args.api_key:
             config["api_key"] = args.api_key
         extra_headers = parse_extra_header(args.extra_header)
